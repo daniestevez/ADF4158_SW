@@ -1,0 +1,14 @@
+[package]
+name = "longan-nano-adf4158"
+version = "0.1.0"
+edition = "2024"
+authors = ["Daniel Estevez <daniel@destevez.net>"]
+description = "Longan Nano firmware to drive ADF4158"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+adf4158 = { path = "../adf4158" }
+embedded-hal = "0.2.7"
+longan-nano = "0.3"
+panic-halt = "1"
+riscv-rt = "0.15"

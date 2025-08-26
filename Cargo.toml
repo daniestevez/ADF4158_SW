@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = ["adf4158", "longan-nano-adf4158"]
+
+[profile.release]
+lto = true
+
+[profile.embedded]
+inherits = "release"
+opt-level = "z"  # Optimize for size.

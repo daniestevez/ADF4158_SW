@@ -5,7 +5,7 @@ use panic_halt as _;
 
 use adf4158::prelude::*;
 use core::convert::Infallible;
-use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::digital::v2::{InputPin, OutputPin};
 use longan_nano::hal::{delay::McycleDelay, pac, prelude::*, rcu::Clocks};
 use riscv_rt::entry;
 
@@ -64,63 +64,93 @@ where
     }
 }
 
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+enum ConfigMode {
+    /// CW carrier at 4.35 GHz.
+    CW,
+    /// Sawtooth covering 4.2 - 4.45 GHz in 60 usec.
+    Sawtooth,
+    /// Triangle covering 4.2 - 4.45 GHz in 60 usec.
+    Triangle,
+}
+
+impl ConfigMode {
+    fn adf4158_config(&self) -> Adf4158Config {
+        let ramp_on = !matches!(self, ConfigMode::CW);
+
+        // 10 MHz reference with doubler: 20 MHz PFD frequency
+        let (int, frac) = match self {
+            ConfigMode::CW => (217, 1 << 24),       // 4.35 GHz
+            ConfigMode::Sawtooth => (210, 0),       // 4.2 GHz
+            ConfigMode::Triangle => (210, 1 << 23), // 4.205 GHz
+        };
+
+        let ramp_mode = match self {
+            ConfigMode::CW | ConfigMode::Sawtooth => RampMode::ContinuousSawtooth,
+            ConfigMode::Triangle => RampMode::ContinuousTriangular,
+        };
+
+        let step_word1 = 1024;
+        let dev_offset_word1 = 4;
+        let deviation_word1 = match self {
+            ConfigMode::CW => 0,
+            ConfigMode::Sawtooth => 25600,
+            ConfigMode::Triangle => 24576,
+        };
+
+        let ramp_delay = matches!(self, ConfigMode::Sawtooth);
+
+        Adf4158Config {
+            ramp_on,
+            muxout_control: MuxoutControl::ReadbackToMux,
+            int,
+            frac,
+            reference_doubler: true,
+            ramp_mode,
+            readback_to_muxout: ReadbackToMuxout::RampComplete,
+            clock_divider_mode: ClkDivMode::RampDivider,
+            dev_offset_word1,
+            deviation_word1,
+            step_word1,
+            ramp_delay,
+            delay_start_word: 200,
+            ..Default::default()
+        }
+    }
+}
+
 #[entry]
 fn main() -> ! {
     let dp = pac::Peripherals::take().unwrap();
     let mut rcu = dp.RCU.configure().freeze();
 
     let gpioa = dp.GPIOA.split(&mut rcu);
+    let gpiob = dp.GPIOB.split(&mut rcu);
     let gpioc = dp.GPIOC.split(&mut rcu);
     let mut adf4158 = adf4158_pins!(gpioc.pc13, gpioa.pa1, gpioa.pa2, rcu);
+    let cw_en = gpiob.pb1.into_pull_up_input();
+    let sawtooth_en = gpiob.pb10.into_pull_up_input();
+    let triangle_en = gpiob.pb11.into_pull_up_input();
 
-    let adf4158_config = Adf4158Config {
-        ramp_on: false,
-        muxout_control: MuxoutControl::ThreeStateOutput,
-        // 4.35 GHz with 10 MHz reference (with reference doubler)
-        int: 217,
-        frac: 1 << 24,
-        cycle_slip_reduction: false,
-        cp_current_setting: ChargePumpCurrentSetting::MA0_31,
-        prescaler: Prescaler::P8_9,
-        r_divider: false,
-        reference_doubler: true,
-        r_counter: 1,
-        clk1_divider: 0,
-        n_sel: NWordLoad::OnSdclk,
-        sigma_delta_enabled: true,
-        ramp_mode: RampMode::ContinuousSawtooth,
-        psk_enable: false,
-        fsk_enable: false,
-        ldp: Ldp::PFDCycles24,
-        pd_polarity: PDPolarity::Positive,
-        power_down: false,
-        cp_three_state: false,
-        counter_reset: false,
-        le_select: LESelect::FromPin,
-        sigma_delta_modulator_mode: SigmaDeltaModulatorMode::NormalOperation,
-        negative_bleed_current: true, // TODO: optimize
-        readback_to_muxout: false,
-        clock_divider_mode: ClkDivMode::Off,
-        clk2_divider: 0,
-        tx_ramp_clk: TxRampClk::ClkDiv,
-        parabolic_ramp: false,
-        interrupt: Interrupt::Off,
-        fsk_ramp_enable: false,
-        ramp_2_enable: false,
-        dev_offset_word1: 0,
-        deviation_word1: 0,
-        dev_offset_word2: 0,
-        deviation_word2: 0,
-        step_word1: 0,
-        step_word2: 0,
-        ramp_delay_fast_lock: false,
-        ramp_delay: false,
-        del_clk_sel: DelClkSel::PfdClk,
-        del_start_enable: false,
-        delay_start_word: 0,
-    };
+    let default_mode = ConfigMode::Triangle;
+    default_mode.adf4158_config().write(&mut adf4158);
 
-    adf4158_config.write(&mut adf4158);
-
-    loop {}
+    let mut pressed_enable = None;
+    loop {
+        let new_pressed_enable = if cw_en.is_low().unwrap() {
+            Some(ConfigMode::CW)
+        } else if sawtooth_en.is_low().unwrap() {
+            Some(ConfigMode::Sawtooth)
+        } else if triangle_en.is_low().unwrap() {
+            Some(ConfigMode::Triangle)
+        } else {
+            None
+        };
+        if let Some(new) = new_pressed_enable
+            && pressed_enable != new_pressed_enable
+        {
+            new.adf4158_config().write(&mut adf4158);
+        }
+        pressed_enable = new_pressed_enable;
+    }
 }

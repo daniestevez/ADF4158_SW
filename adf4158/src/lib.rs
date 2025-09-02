@@ -3,7 +3,7 @@
 pub mod prelude {
     pub use super::{
         Adf4158Config, ChargePumpCurrentSetting, ClkDivMode, DelClkSel, Interrupt, LESelect, Ldp,
-        MuxoutControl, NWordLoad, PDPolarity, Prescaler, RampMode, RegisterWrite,
+        MuxoutControl, NWordLoad, PDPolarity, Prescaler, RampMode, ReadbackToMuxout, RegisterWrite,
         SigmaDeltaModulatorMode, TxRampClk,
     };
 }
@@ -43,7 +43,7 @@ pub struct Adf4158Config {
     pub le_select: LESelect,
     pub sigma_delta_modulator_mode: SigmaDeltaModulatorMode,
     pub negative_bleed_current: bool,
-    pub readback_to_muxout: bool,
+    pub readback_to_muxout: ReadbackToMuxout,
     pub clock_divider_mode: ClkDivMode,
     pub clk2_divider: u16, // 12 bits
     // R5
@@ -65,6 +65,56 @@ pub struct Adf4158Config {
     pub del_clk_sel: DelClkSel,
     pub del_start_enable: bool,
     pub delay_start_word: u16,
+}
+
+impl Default for Adf4158Config {
+    fn default() -> Adf4158Config {
+        Adf4158Config {
+            ramp_on: false,
+            muxout_control: MuxoutControl::ThreeStateOutput,
+            int: 0,
+            frac: 0,
+            cycle_slip_reduction: false,
+            cp_current_setting: ChargePumpCurrentSetting::MA0_31,
+            prescaler: Prescaler::P8_9,
+            r_divider: false,
+            reference_doubler: false,
+            r_counter: 1,
+            clk1_divider: 1,
+            n_sel: NWordLoad::OnSdclk,
+            sigma_delta_enabled: true,
+            ramp_mode: RampMode::ContinuousSawtooth,
+            psk_enable: false,
+            fsk_enable: false,
+            ldp: Ldp::PFDCycles24,
+            pd_polarity: PDPolarity::Positive,
+            power_down: false,
+            cp_three_state: false,
+            counter_reset: false,
+            le_select: LESelect::FromPin,
+            sigma_delta_modulator_mode: SigmaDeltaModulatorMode::NormalOperation,
+            negative_bleed_current: false,
+            readback_to_muxout: ReadbackToMuxout::Disabled,
+            clock_divider_mode: ClkDivMode::Off,
+            clk2_divider: 1,
+            tx_ramp_clk: TxRampClk::ClkDiv,
+            parabolic_ramp: false,
+            interrupt: Interrupt::Off,
+            fsk_ramp_enable: false,
+            ramp_2_enable: false,
+            dev_offset_word1: 0,
+            deviation_word1: 0,
+            dev_offset_word2: 0,
+            deviation_word2: 0,
+            step_word1: 0,
+            step_word2: 0,
+            ramp_delay_fast_lock: false,
+            ramp_delay: false,
+            del_clk_sel: DelClkSel::PfdClk,
+            del_start_enable: false,
+            delay_start_word: 0,
+        }
+    }
 }
 
 impl Adf4158Config {
@@ -295,6 +345,14 @@ pub enum SigmaDeltaModulatorMode {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 #[repr(u8)]
+pub enum ReadbackToMuxout {
+    Disabled = 0b00,
+    Enabled = 0b01,
+    RampComplete = 0b11,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[repr(u8)]
 pub enum ClkDivMode {
     Off = 0b00,
     FastLockDivider = 0b01,
@@ -305,17 +363,16 @@ fn word_r4(
     le_select: LESelect,
     sigma_delta_modulator_mode: SigmaDeltaModulatorMode,
     negative_bleed_current: bool,
-    readback_to_muxout: bool,
+    readback_to_muxout: ReadbackToMuxout,
     clock_divider_mode: ClkDivMode,
     clk2_divider: u16,
 ) -> u32 {
     assert!(clk2_divider < 1 << 12);
     let negative_bleed_current = if negative_bleed_current { 0b11 } else { 0 };
-    let readback_to_muxout = if readback_to_muxout { 0b10 } else { 0 };
     (u32::from(le_select as u8) << 31)
         | (u32::from(sigma_delta_modulator_mode as u8) << 26)
         | (negative_bleed_current << 23)
-        | (readback_to_muxout << 21)
+        | (u32::from(readback_to_muxout as u8) << 21)
         | (u32::from(clock_divider_mode as u8) << 19)
         | (u32::from(clk2_divider) << 7)
         | 0b100

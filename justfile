@@ -6,3 +6,7 @@ firmware:
 # flash firmware.bin
 flash: firmware
     dfu-util -a 0 -s 0x08000000:leave -D firmware.bin
+
+# run clippy
+clippy:
+    cargo clippy --profile embedded --target riscv32imac-unknown-none-elf

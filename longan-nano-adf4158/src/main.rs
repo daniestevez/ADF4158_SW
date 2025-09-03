@@ -77,6 +77,19 @@ enum ConfigMode {
 impl ConfigMode {
     fn adf4158_config(&self) -> Adf4158Config {
         let ramp_on = !matches!(self, ConfigMode::CW);
+        let (muxout_control, readback_to_muxout, clock_divider_mode) = if ramp_on {
+            (
+                MuxoutControl::ReadbackToMux,
+                ReadbackToMuxout::RampComplete,
+                ClkDivMode::RampDivider,
+            )
+        } else {
+            (
+                MuxoutControl::ThreeStateOutput,
+                ReadbackToMuxout::Disabled,
+                ClkDivMode::Off,
+            )
+        };
 
         // 10 MHz reference with doubler: 20 MHz PFD frequency
         let (int, frac) = match self {
@@ -99,21 +112,22 @@ impl ConfigMode {
         };
 
         let ramp_delay = matches!(self, ConfigMode::Sawtooth);
+        let delay_start_word = if ramp_delay { 200 } else { 0 };
 
         Adf4158Config {
             ramp_on,
-            muxout_control: MuxoutControl::ReadbackToMux,
+            muxout_control,
             int,
             frac,
             reference_doubler: true,
             ramp_mode,
-            readback_to_muxout: ReadbackToMuxout::RampComplete,
-            clock_divider_mode: ClkDivMode::RampDivider,
+            readback_to_muxout,
+            clock_divider_mode,
             dev_offset_word1,
             deviation_word1,
             step_word1,
             ramp_delay,
-            delay_start_word: 200,
+            delay_start_word,
             ..Default::default()
         }
     }
